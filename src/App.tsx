@@ -1,0 +1,282 @@
+import { useState, useEffect, useCallback } from 'react';
+import { getSocket, disconnectSocket } from './socket';
+import { GameState, PlayerColor, GameMove } from './types';
+import { Chess } from 'chess.js';
+import GameInfo from './components/GameInfo';
+import RoomManager from './components/RoomManager';
+import ChessBoard from './components/ChessBoard';
+
+function App() {
+  const [gameId, setGameId] = useState<string>('');
+  const [playerColor, setPlayerColor] = useState<PlayerColor | null>(null);
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [chess] = useState(() => new Chess());
+
+  // Setup socket event listeners
+  useEffect(() => {
+    const socket = getSocket();
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setError(null);
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('assign_role', ({ color }: { color: PlayerColor }) => {
+      setPlayerColor(color);
+      setError(null);
+    });
+
+    socket.on('game_state', (state: GameState) => {
+      setGameState(state);
+      // Sync local chess instance with server FEN
+      try {
+        chess.load(state.fen);
+      } catch {
+        console.error('Failed to load FEN:', state.fen);
+      }
+    });
+
+    socket.on('move_made', (move: GameMove) => {
+      try {
+        chess.move({
+          from: move.from,
+          to: move.to,
+          promotion: 'q',
+        });
+      } catch {
+        console.error('Failed to sync move:', move);
+      }
+    });
+
+    socket.on('room_full', ({ message }: { message: string }) => {
+      setError(message);
+    });
+
+    socket.on('move_error', ({ error: err }: { error: string }) => {
+      setError(err);
+      setTimeout(() => setError(null), 3000);
+    });
+
+    socket.on('game_over', ({ reason, winner }: { reason: string; winner?: PlayerColor }) => {
+      setGameState((prev) =>
+        prev
+          ? {
+              ...prev,
+              isGameOver: true,
+              gameOverReason: reason,
+              winner,
+            }
+          : null
+      );
+    });
+
+    socket.on('player_disconnected', ({ color }: { color: PlayerColor }) => {
+      setError(`Player ${color} disconnected. Waiting for reconnect...`);
+    });
+
+    socket.on('player_joined', ({ color }: { color: PlayerColor }) => {
+      setError(`Player ${color} joined the game!`);
+      setTimeout(() => setError(null), 3000);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('assign_role');
+      socket.off('game_state');
+      socket.off('move_made');
+      socket.off('room_full');
+      socket.off('move_error');
+      socket.off('game_over');
+      socket.off('player_disconnected');
+      socket.off('player_joined');
+      disconnectSocket();
+    };
+  }, [chess]);
+
+  const handleJoinRoom = useCallback((id: string) => {
+    setGameId(id);
+    setError(null);
+    const socket = getSocket();
+    // Get stored reconnect token if any
+    const token = localStorage.getItem(`chess_token_${id}`);
+    socket.emit('join_room', { gameId: id, reconnectToken: token });
+    // Store token for potential reconnection
+    localStorage.setItem(`chess_token_${id}`, socket.id || '');
+  }, []);
+
+  const handleLeaveRoom = useCallback(() => {
+    if (gameId) {
+      localStorage.removeItem(`chess_token_${gameId}`);
+    }
+    disconnectSocket();
+    setGameId('');
+    setPlayerColor(null);
+    setGameState(null);
+    setIsConnected(false);
+    chess.reset();
+  }, [gameId, chess]);
+
+  const hasBothPlayers = gameState?.players?.white && gameState?.players?.black;
+  const isMyTurn = gameState?.turn === (playerColor === 'white' ? 'w' : 'b');
+  const gameStatus = !hasBothPlayers
+    ? 'Waiting for opponent...'
+    : gameState?.isGameOver
+    ? `Game Over: ${gameState.gameOverReason}${gameState.winner ? ` - ${gameState.winner} wins!` : ''}`
+    : isMyTurn
+    ? 'Your turn'
+    : "Opponent's turn";
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="bg-white/10 backdrop-blur-md border-b border-white/10 py-4 px-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="text-3xl">♟️</div>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+              Real-Time Chess
+            </h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <div
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+                isConnected
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-red-500/20 text-red-400'
+              }`}
+            >
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+                }`}
+              />
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </div>
+            {gameId && (
+              <button
+                onClick={handleLeaveRoom}
+                className="px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-full text-sm font-medium transition-colors"
+              >
+                Leave Game
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col lg:flex-row">
+        {!gameId ? (
+          <div className="flex-1 flex items-center justify-center p-6">
+            <RoomManager onJoinRoom={handleJoinRoom} />
+          </div>
+        ) : (
+          <>
+            {/* Left Panel - Game Info */}
+            <div className="lg:w-80 bg-white/5 border-r border-white/10 p-6">
+              <GameInfo
+                gameId={gameId}
+                playerColor={playerColor}
+                gameState={gameState}
+                status={gameStatus}
+                moveHistory={gameState?.moveHistory || []}
+              />
+            </div>
+
+            {/* Center - Chess Board */}
+            <div className="flex-1 flex flex-col items-center justify-center p-4 lg:p-8">
+              {/* Opponent Info */}
+              <div className="w-full max-w-2xl mb-4 flex items-center justify-between">
+                <div
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
+                    gameState?.turn === 'b' && !gameState?.isGameOver
+                      ? 'bg-blue-500/20 ring-2 ring-blue-500/50'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                      playerColor === 'white' ? 'bg-black' : 'bg-white'
+                    }`}
+                  >
+                    <span className={playerColor === 'white' ? 'text-white' : 'text-black'}>
+                      ♚
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-semibold">
+                      {playerColor === 'white' ? 'Black' : 'White'}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      {hasBothPlayers ? 'Connected' : 'Waiting...'}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-sm text-gray-400">Opponent</div>
+              </div>
+
+              {/* Chess Board */}
+              <ChessBoard
+                gameId={gameId}
+                playerColor={playerColor}
+                fen={gameState?.fen}
+                isMyTurn={isMyTurn}
+                isGameOver={gameState?.isGameOver || false}
+              />
+
+              {/* Player Info */}
+              <div className="w-full max-w-2xl mt-4 flex items-center justify-between">
+                <div
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
+                    gameState?.turn === (playerColor === 'white' ? 'w' : 'b') &&
+                    !gameState?.isGameOver
+                      ? 'bg-green-500/20 ring-2 ring-green-500/50'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                      playerColor === 'white' ? 'bg-white' : 'bg-black'
+                    }`}
+                  >
+                    <span className={playerColor === 'white' ? 'text-black' : 'text-white'}>
+                      ♚
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-semibold">
+                      {playerColor === 'white' ? 'White' : 'Black'}
+                    </div>
+                    <div className="text-sm text-gray-400">You</div>
+                  </div>
+                </div>
+                <div className="text-sm text-gray-400">Your turn</div>
+              </div>
+            </div>
+          </>
+        )}
+      </main>
+
+      {/* Error Toast */}
+      {error && (
+        <div className="fixed bottom-6 right-6 bg-red-500/90 text-white px-6 py-3 rounded-lg shadow-lg toast backdrop-blur-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="bg-white/5 border-t border-white/10 py-3 px-6 text-center text-sm text-gray-400">
+        Real-Time Multiplayer Chess • Built with React, Fastify & Socket.IO
+      </footer>
+    </div>
+  );
+}
+
+export default App;
