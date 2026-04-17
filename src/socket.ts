@@ -1,13 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { MoveData } from './types';
 
-const getEnvVar = (name: string): string | undefined => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (import.meta as any).env?.[name];
-};
-
-const SOCKET_URL = getEnvVar('VITE_SOCKET_URL') || 'http://localhost:3001';
-
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
