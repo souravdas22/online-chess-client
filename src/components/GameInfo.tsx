@@ -48,6 +48,18 @@ export default function GameInfo({
         </div>
       </div>
 
+      {/* Time Control */}
+      {gameState?.timeControl && (
+        <div className="bg-white/5 rounded-xl p-4">
+          <label className="text-xs text-gray-500 uppercase tracking-wider font-medium">
+            Time Control
+          </label>
+          <div className="mt-1 text-lg font-semibold text-white">
+            {gameState.timeControl.name}
+          </div>
+        </div>
+      )}
+
       {/* Status */}
       <div
         className={`rounded-xl p-4 ${

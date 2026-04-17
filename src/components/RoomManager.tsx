@@ -1,22 +1,38 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { TimeControl } from '../types';
 
 interface RoomManagerProps {
-  onJoinRoom: (gameId: string) => void;
+  onJoinRoom: (gameId: string, timeControl?: TimeControl) => void;
 }
+
+const TIME_MODES: TimeControl[] = [
+  { initialTime: 3 * 60, increment: 0, name: '3 min' },
+  { initialTime: 5 * 60, increment: 0, name: '5 min' },
+  { initialTime: 10 * 60, increment: 0, name: '10 min' },
+];
 
 export default function RoomManager({ onJoinRoom }: RoomManagerProps) {
   const [gameId, setGameId] = useState('');
   const [isCreating, setIsCreating] = useState(true);
+  const [selectedTimeMode, setSelectedTimeMode] = useState<TimeControl>(TIME_MODES[1]); // Default 5 min
 
   const generateGameId = useCallback(() => {
     const id = Math.random().toString(36).substring(2, 8).toUpperCase();
     setGameId(id);
   }, []);
 
+  // Auto-generate game ID when switching to create mode
+  useEffect(() => {
+    if (isCreating && !gameId) {
+      generateGameId();
+    }
+  }, [isCreating, gameId, generateGameId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (gameId.trim()) {
-      onJoinRoom(gameId.trim().toUpperCase());
+      // Pass time control only when creating a game
+      onJoinRoom(gameId.trim().toUpperCase(), isCreating ? selectedTimeMode : undefined);
     }
   };
 
@@ -57,6 +73,31 @@ export default function RoomManager({ onJoinRoom }: RoomManagerProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Time Mode Selection - only show when creating */}
+        {isCreating && (
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Time Control
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {TIME_MODES.map((mode) => (
+                <button
+                  key={mode.name}
+                  type="button"
+                  onClick={() => setSelectedTimeMode(mode)}
+                  className={`py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                    selectedTimeMode.name === mode.name
+                      ? 'bg-blue-500 text-white shadow-lg'
+                      : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {mode.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
             Game ID
@@ -65,10 +106,13 @@ export default function RoomManager({ onJoinRoom }: RoomManagerProps) {
             <input
               type="text"
               value={gameId}
-              onChange={(e) => setGameId(e.target.value.toUpperCase())}
+              onChange={(e) => !isCreating && setGameId(e.target.value.toUpperCase())}
               placeholder="Enter game ID..."
               maxLength={10}
-              className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase tracking-wider"
+              readOnly={isCreating}
+              className={`w-full px-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase tracking-wider ${
+                isCreating ? 'cursor-not-allowed bg-white/10' : ''
+              }`}
             />
             {isCreating && (
               <button
@@ -82,7 +126,7 @@ export default function RoomManager({ onJoinRoom }: RoomManagerProps) {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             {isCreating
-              ? 'Share this ID with your friend to play together'
+              ? 'Auto-generated code. Share this ID with your friend to play together'
               : 'Ask your friend for the game ID'}
           </p>
         </div>

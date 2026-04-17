@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getSocket, disconnectSocket } from './socket';
-import { GameState, PlayerColor, GameMove } from './types';
+import { GameState, PlayerColor, GameMove, TimeControl } from './types';
 import { Chess } from 'chess.js';
 import GameInfo from './components/GameInfo';
 import RoomManager from './components/RoomManager';
 import ChessBoard from './components/ChessBoard';
+import Timer from './components/Timer';
+import CapturedPieces from './components/CapturedPieces';
 
 function App() {
   const [gameId, setGameId] = useState<string>('');
@@ -100,13 +102,13 @@ function App() {
     };
   }, [chess]);
 
-  const handleJoinRoom = useCallback((id: string) => {
+  const handleJoinRoom = useCallback((id: string, timeControl?: TimeControl) => {
     setGameId(id);
     setError(null);
     const socket = getSocket();
     // Get stored reconnect token if any
     const token = localStorage.getItem(`chess_token_${id}`);
-    socket.emit('join_room', { gameId: id, reconnectToken: token });
+    socket.emit('join_room', { gameId: id, reconnectToken: token, timeControl });
     // Store token for potential reconnection
     localStorage.setItem(`chess_token_${id}`, socket.id || '');
   }, []);
@@ -123,7 +125,7 @@ function App() {
     chess.reset();
   }, [gameId, chess]);
 
-  const hasBothPlayers = gameState?.players?.white && gameState?.players?.black;
+  const hasBothPlayers = !!(gameState?.players?.white && gameState?.players?.black);
   const isMyTurn = gameState?.turn === (playerColor === 'white' ? 'w' : 'b');
   const gameStatus = !hasBothPlayers
     ? 'Waiting for opponent...'
@@ -193,7 +195,7 @@ function App() {
             {/* Center - Chess Board */}
             <div className="flex-1 flex flex-col items-center justify-center p-4 lg:p-8">
               {/* Opponent Info */}
-              <div className="w-full max-w-2xl mb-4 flex items-center justify-between">
+              <div className="w-full max-w-2xl mb-2 flex items-center justify-between">
                 <div
                   className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
                     gameState?.turn === 'b' && !gameState?.isGameOver
@@ -220,6 +222,27 @@ function App() {
                   </div>
                 </div>
                 <div className="text-sm text-gray-400">Opponent</div>
+              </div>
+
+              {/* Captured Pieces - Top (pieces captured by White) */}
+              <div className="w-full max-w-2xl mb-2">
+                <CapturedPieces
+                  capturedByWhite={gameState?.capturedPieces?.white || []}
+                  capturedByBlack={gameState?.capturedPieces?.black || []}
+                />
+              </div>
+
+              {/* Timer */}
+              <div className="w-full max-w-2xl mb-2">
+                <Timer
+                  gameId={gameId}
+                  whiteTimeRemaining={gameState?.whiteTimeRemaining || 0}
+                  blackTimeRemaining={gameState?.blackTimeRemaining || 0}
+                  isGameOver={gameState?.isGameOver || false}
+                  turn={gameState?.turn || 'w'}
+                  hasBothPlayers={hasBothPlayers}
+                  playerColor={playerColor}
+                />
               </div>
 
               {/* Chess Board */}
