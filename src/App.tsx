@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getSocket, disconnectSocket } from './socket';
 import { GameState, PlayerColor, GameMove, TimeControl } from './types';
 import { Chess } from 'chess.js';
@@ -15,6 +15,7 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chess] = useState(() => new Chess());
+  const [viewMoveIndex, setViewMoveIndex] = useState<number>(-1); // -1 = current position, 0+ = viewing history
 
   // Setup socket event listeners
   useEffect(() => {
@@ -42,6 +43,8 @@ function App() {
       } catch {
         console.error('Failed to load FEN:', state.fen);
       }
+      // Reset to current position when game state updates (new move made)
+      setViewMoveIndex(-1);
     });
 
     socket.on('move_made', (move: GameMove) => {
@@ -51,6 +54,8 @@ function App() {
           to: move.to,
           promotion: 'q',
         });
+        // Reset to current position when a new move is made
+        setViewMoveIndex(-1);
       } catch {
         console.error('Failed to sync move:', move);
       }
@@ -122,11 +127,35 @@ function App() {
     setPlayerColor(null);
     setGameState(null);
     setIsConnected(false);
+    setViewMoveIndex(-1);
     chess.reset();
   }, [gameId, chess]);
 
   const hasBothPlayers = !!(gameState?.players?.white && gameState?.players?.black);
   const isMyTurn = gameState?.turn === (playerColor === 'white' ? 'w' : 'b');
+
+  // Calculate display FEN based on view position
+  const displayFen = useMemo(() => {
+    if (!gameState) return undefined;
+    if (viewMoveIndex === -1) return gameState.fen;
+
+    // Reconstruct position from move history up to viewMoveIndex
+    const tempChess = new Chess();
+    for (let i = 0; i <= viewMoveIndex && i < gameState.moveHistory.length; i++) {
+      try {
+        tempChess.move(gameState.moveHistory[i]);
+      } catch {
+        console.error('Failed to replay move:', gameState.moveHistory[i]);
+      }
+    }
+    return tempChess.fen();
+  }, [gameState, viewMoveIndex]);
+
+  // Handle navigation
+  const handleNavigate = useCallback((index: number) => {
+    setViewMoveIndex(index);
+  }, []);
+
   const gameStatus = !hasBothPlayers
     ? 'Waiting for opponent...'
     : gameState?.isGameOver
@@ -249,9 +278,14 @@ function App() {
               <ChessBoard
                 gameId={gameId}
                 playerColor={playerColor}
-                fen={gameState?.fen}
-                isMyTurn={isMyTurn}
+                fen={displayFen}
+                isMyTurn={isMyTurn && viewMoveIndex === -1}
                 isGameOver={gameState?.isGameOver || false}
+                inCheck={viewMoveIndex === -1 ? (gameState?.inCheck || false) : false}
+                turn={viewMoveIndex === -1 ? (gameState?.turn || 'w') : (displayFen ? (displayFen.includes(' w ') ? 'w' : 'b') : 'w')}
+                moveHistory={gameState?.moveHistory || []}
+                viewMoveIndex={viewMoveIndex}
+                onNavigate={handleNavigate}
               />
 
               {/* Player Info */}

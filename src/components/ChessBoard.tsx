@@ -10,6 +10,11 @@ interface ChessBoardProps {
   fen: string | undefined;
   isMyTurn: boolean;
   isGameOver: boolean;
+  inCheck: boolean;
+  turn: 'w' | 'b';
+  moveHistory: string[];
+  viewMoveIndex: number; // -1 means current position, 0+ means viewing that move index
+  onNavigate: (index: number) => void; // -1 for current, 0+ for move index
 }
 
 export default function ChessBoard({
@@ -18,6 +23,11 @@ export default function ChessBoard({
   fen,
   isMyTurn,
   isGameOver,
+  inCheck,
+  turn,
+  moveHistory,
+  viewMoveIndex,
+  onNavigate,
 }: ChessBoardProps) {
   const [chess] = useState(() => new Chess());
   const [validMoves, setValidMoves] = useState<string[]>([]);
@@ -161,31 +171,26 @@ export default function ChessBoard({
       };
     }
 
-    // Check indicator
-    if (chess.inCheck()) {
-      const kingSquare = chess.board().flat().find(
-        (piece) => piece?.type === 'k' && piece.color === chess.turn()
-      );
-      if (kingSquare) {
-        // Find king position
-        for (let row = 0; row < 8; row++) {
-          for (let col = 0; col < 8; col++) {
-            const piece = chess.board()[row][col];
-            if (piece?.type === 'k' && piece.color === chess.turn()) {
-              const square = String.fromCharCode(97 + col) + (8 - row);
-              styles[square] = {
-                ...styles[square],
-                background:
-                  'radial-gradient(ellipse at center, rgb(255, 0, 0) 0%, rgb(231, 0, 0) 25%, rgba(169, 0, 0, 0) 89%, rgba(158, 0, 0, 0) 100%)',
-              };
-            }
+    // Check indicator - use server-provided inCheck and turn
+    if (inCheck) {
+      // Find the king of the side whose turn it is (the one in check)
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const piece = chess.board()[row][col];
+          if (piece?.type === 'k' && piece.color === turn) {
+            const square = String.fromCharCode(97 + col) + (8 - row);
+            styles[square] = {
+              ...styles[square],
+              background:
+                'radial-gradient(ellipse at center, rgb(255, 0, 0) 0%, rgb(231, 0, 0) 25%, rgba(169, 0, 0, 0) 89%, rgba(158, 0, 0, 0) 100%)',
+            };
           }
         }
       }
     }
 
     return styles;
-  }, [validMoves, selectedSquare, lastMove, chess]);
+  }, [validMoves, selectedSquare, lastMove, chess, inCheck, turn]);
 
   return (
     <div className="w-full max-w-2xl aspect-square">
@@ -229,11 +234,13 @@ export default function ChessBoard({
           />
         </div>
 
-        {/* Turn indicator */}
-        <div className="mt-4 text-center">
+        {/* Turn indicator and Move Navigation */}
+        <div className="mt-4 flex flex-col items-center gap-3">
           <div
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
-              isMyTurn && !isGameOver
+              viewMoveIndex !== -1
+                ? 'bg-yellow-500/20 text-yellow-400'
+                : isMyTurn && !isGameOver
                 ? 'bg-green-500/20 text-green-400'
                 : isGameOver
                 ? 'bg-red-500/20 text-red-400'
@@ -242,19 +249,69 @@ export default function ChessBoard({
           >
             <div
               className={`w-2 h-2 rounded-full ${
-                isMyTurn && !isGameOver
+                viewMoveIndex !== -1
+                  ? 'bg-yellow-400'
+                  : isMyTurn && !isGameOver
                   ? 'bg-green-400 animate-pulse'
                   : isGameOver
                   ? 'bg-red-400'
                   : 'bg-blue-400'
               }`}
             />
-            {isGameOver
+            {viewMoveIndex !== -1
+              ? `Viewing move ${viewMoveIndex + 1} of ${moveHistory.length}`
+              : isGameOver
               ? 'Game Over'
               : isMyTurn
               ? 'Your turn to move'
               : "Waiting for opponent's move"}
           </div>
+
+          {/* Move Navigation Controls */}
+          {moveHistory.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onNavigate(0)}
+                disabled={viewMoveIndex === 0}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                title="First move"
+              >
+                |◀
+              </button>
+              <button
+                onClick={() => onNavigate(viewMoveIndex === -1 ? moveHistory.length - 2 : Math.max(0, viewMoveIndex - 1))}
+                disabled={viewMoveIndex === 0 || (viewMoveIndex === -1 && moveHistory.length === 0)}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                title="Previous move"
+              >
+                ◀
+              </button>
+              <button
+                onClick={() => onNavigate(-1)}
+                disabled={viewMoveIndex === -1}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                title="Current position"
+              >
+                Current
+              </button>
+              <button
+                onClick={() => onNavigate(viewMoveIndex === -1 ? moveHistory.length - 1 : Math.min(moveHistory.length - 1, viewMoveIndex + 1))}
+                disabled={viewMoveIndex === -1 || viewMoveIndex >= moveHistory.length - 1}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                title="Next move"
+              >
+                ▶
+              </button>
+              <button
+                onClick={() => onNavigate(-1)}
+                disabled={viewMoveIndex === -1}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                title="Last move / Current"
+              >
+                ▶|
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

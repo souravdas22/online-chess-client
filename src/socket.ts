@@ -18,6 +18,8 @@ export const getSocket = (): Socket => {
 
 export const disconnectSocket = (): void => {
   if (socket) {
+    // Disable auto-reconnection before disconnecting to prevent unwanted reconnection
+    socket.io.opts.reconnection = false;
     socket.disconnect();
     socket = null;
   }
@@ -25,6 +27,8 @@ export const disconnectSocket = (): void => {
 
 export const joinRoom = (gameId: string, reconnectToken?: string): void => {
   const sock = getSocket();
+  // Re-enable reconnection for this new connection
+  sock.io.opts.reconnection = true;
   sock.emit('join_room', { gameId, reconnectToken });
 };
 
