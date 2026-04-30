@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { getSocket, disconnectSocket } from './socket';
+import { getSocket, disconnectSocket, setSocketCallbacks } from './socket';
 import { GameState, PlayerColor, GameMove, TimeControl } from './types';
 import { Chess } from 'chess.js';
 import GameInfo from './components/GameInfo';
@@ -19,16 +19,18 @@ function App() {
 
   // Setup socket event listeners
   useEffect(() => {
+    // Use setSocketCallbacks to ensure callbacks are attached to any new socket instance
+    setSocketCallbacks(
+      () => {
+        setIsConnected(true);
+        setError(null);
+      },
+      () => {
+        setIsConnected(false);
+      }
+    );
+
     const socket = getSocket();
-
-    socket.on('connect', () => {
-      setIsConnected(true);
-      setError(null);
-    });
-
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-    });
 
     socket.on('assign_role', ({ color }: { color: PlayerColor }) => {
       setPlayerColor(color);
@@ -93,8 +95,7 @@ function App() {
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
+      // Callbacks are managed by setSocketCallbacks, no need to remove here
       socket.off('assign_role');
       socket.off('game_state');
       socket.off('move_made');
@@ -286,6 +287,7 @@ function App() {
                 moveHistory={gameState?.moveHistory || []}
                 viewMoveIndex={viewMoveIndex}
                 onNavigate={handleNavigate}
+                isCheckmate={(gameState?.isGameOver && gameState?.gameOverReason === 'checkmate') || false}
               />
 
               {/* Player Info */}

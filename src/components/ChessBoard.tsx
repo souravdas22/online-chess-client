@@ -15,6 +15,7 @@ interface ChessBoardProps {
   moveHistory: string[];
   viewMoveIndex: number; // -1 means current position, 0+ means viewing that move index
   onNavigate: (index: number) => void; // -1 for current, 0+ for move index
+  isCheckmate: boolean;
 }
 
 export default function ChessBoard({
@@ -28,6 +29,7 @@ export default function ChessBoard({
   moveHistory,
   viewMoveIndex,
   onNavigate,
+  isCheckmate,
 }: ChessBoardProps) {
   const [chess] = useState(() => new Chess());
   const [validMoves, setValidMoves] = useState<string[]>([]);
@@ -139,7 +141,7 @@ export default function ChessBoard({
 
   // Build custom square styles
   const getSquareStyles = useCallback(() => {
-    const styles: { [key: string]: { background?: string; backgroundColor?: string; borderRadius?: string } } = {};
+    const styles: { [key: string]: { background?: string; backgroundColor?: string; borderRadius?: string; boxShadow?: string } } = {};
 
     // Highlight valid moves
     validMoves.forEach((square) => {
@@ -172,25 +174,76 @@ export default function ChessBoard({
     }
 
     // Check indicator - use server-provided inCheck and turn
-    if (inCheck) {
-      // Find the king of the side whose turn it is (the one in check)
-      for (let row = 0; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-          const piece = chess.board()[row][col];
-          if (piece?.type === 'k' && piece.color === turn) {
-            const square = String.fromCharCode(97 + col) + (8 - row);
-            styles[square] = {
-              ...styles[square],
-              background:
-                'radial-gradient(ellipse at center, rgb(255, 0, 0) 0%, rgb(231, 0, 0) 25%, rgba(169, 0, 0, 0) 89%, rgba(158, 0, 0, 0) 100%)',
-            };
+    // Parse FEN directly to find king position to ensure sync with displayed position
+    if (inCheck && fen) {
+      try {
+        // FEN format: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+        const boardPart = fen.split(' ')[0];
+        const rows = boardPart.split('/');
+        const targetKing = turn === 'w' ? 'K' : 'k'; // White king is 'K', black king is 'k'
+
+        for (let row = 0; row < 8; row++) {
+          let col = 0;
+          const rowData = rows[row];
+          for (const char of rowData) {
+            if (char >= '1' && char <= '8') {
+              // Empty squares
+              col += parseInt(char, 10);
+            } else {
+              // Piece
+              if (char === targetKing) {
+                const square = String.fromCharCode(97 + col) + (8 - row);
+                // Checkmate gets extreme red, regular check gets normal red
+                if (isCheckmate) {
+                  styles[square] = {
+                    ...styles[square],
+                    backgroundColor: 'rgb(200, 0, 0)',
+                    background:
+                      'radial-gradient(ellipse at center, rgb(255, 50, 50) 0%, rgb(220, 0, 0) 35%, rgb(180, 0, 0) 70%, rgb(150, 0, 0) 100%)',
+                    boxShadow: 'inset 0 0 20px rgba(100, 0, 0, 0.8)',
+                  };
+                } else {
+                  styles[square] = {
+                    ...styles[square],
+                    background:
+                      'radial-gradient(ellipse at center, rgb(255, 0, 0) 0%, rgb(231, 0, 0) 25%, rgba(169, 0, 0, 0) 89%, rgba(158, 0, 0, 0) 100%)',
+                  };
+                }
+              }
+              col++;
+            }
+          }
+        }
+      } catch {
+        // Fallback: use chess.board() if FEN parsing fails
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            const piece = chess.board()[row][col];
+            if (piece?.type === 'k' && piece.color === turn) {
+              const square = String.fromCharCode(97 + col) + (8 - row);
+              if (isCheckmate) {
+                styles[square] = {
+                  ...styles[square],
+                  backgroundColor: 'rgb(200, 0, 0)',
+                  background:
+                    'radial-gradient(ellipse at center, rgb(255, 50, 50) 0%, rgb(220, 0, 0) 35%, rgb(180, 0, 0) 70%, rgb(150, 0, 0) 100%)',
+                  boxShadow: 'inset 0 0 20px rgba(100, 0, 0, 0.8)',
+                };
+              } else {
+                styles[square] = {
+                  ...styles[square],
+                  background:
+                    'radial-gradient(ellipse at center, rgb(255, 0, 0) 0%, rgb(231, 0, 0) 25%, rgba(169, 0, 0, 0) 89%, rgba(158, 0, 0, 0) 100%)',
+                };
+              }
+            }
           }
         }
       }
     }
 
     return styles;
-  }, [validMoves, selectedSquare, lastMove, chess, inCheck, turn]);
+  }, [validMoves, selectedSquare, lastMove, chess, inCheck, turn, fen, isCheckmate]);
 
   return (
     <div className="w-full max-w-2xl aspect-square">
